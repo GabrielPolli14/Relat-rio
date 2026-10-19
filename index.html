@@ -333,7 +333,7 @@ footer b{letter-spacing:.2em;font-weight:600;font-size:10.5px;color:var(--acc);o
   .nav{height:54px;padding:0 6px 0 12px}
   .nav .tabs{display:none}
   .brand b{font-size:13px}.nb .t{display:none}.acts{margin-left:auto}
-  .fbar{top:calc(72px + env(safe-area-inset-top,0px));padding:6px}
+  .fbar{position:relative;top:auto;z-index:1;padding:6px}
   .fbar .fl.per{display:none}
   .fbar .chips{order:3;flex:1 0 100%;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.fbar .chips:empty{display:none}
   .fbar #bClr{margin-left:auto}
@@ -519,10 +519,25 @@ const sv = (tag, a = {}) => { const e = document.createElementNS(NS, tag); for (
 const cssv = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const PAL = () => [cssv('--cf'), cssv('--cd'), '#037FF7', '#00298E', '#5B8DEF', '#9DB8FF', '#7A869F'];
 const TIP = $('#tip');
+const TOUCH = matchMedia('(hover: none)').matches;
 function tipShow(ev, html) { TIP.innerHTML = html; TIP.classList.add('on'); const w = TIP.offsetWidth, h = TIP.offsetHeight; let x = ev.clientX + 14, y = ev.clientY - h - 12; if (x + w > innerWidth - 8) x = ev.clientX - w - 14; if (y < 8) y = ev.clientY + 16; TIP.style.left = x + 'px'; TIP.style.top = y + 'px'; }
-function tipHide() { TIP.classList.remove('on'); }
-document.addEventListener('mouseover', (e) => { const t = e.target.closest('[data-tip]'); if (t) tipShow(e, esc(t.dataset.tip)); });
-document.addEventListener('mouseout', (e) => { if (e.target.closest('[data-tip]')) tipHide(); });
+const tipOut = () => { if (!TOUCH) tipHide(); };
+function tipHide() { TIP.classList.remove('on'); clearTimeout(tipHide._t); if (typeof tapClick === 'function') tapClick.k = null; }
+/* toque: a dica some sozinha, ao rolar ou ao tocar fora (sem hover no celular) */
+const _tipShow = tipShow;
+tipShow = function (ev, html) { _tipShow(ev, html); if (TOUCH) { clearTimeout(tipHide._t); tipHide._t = setTimeout(tipHide, 2200); } };
+addEventListener('scroll', tipHide, { passive: true });
+/* no toque: 1º toque mostra o valor, 2º toque no mesmo elemento executa a ação */
+function tapClick(el, key, html, fn) {
+  el.addEventListener('click', (e) => {
+    if (TOUCH && tapClick.k !== key) { tapClick.k = key; tipShow(e, typeof html === 'function' ? html() : html); return; }
+    tapClick.k = null; tipHide(); if (fn) fn();
+  });
+}
+document.addEventListener('touchstart', (e) => { if (!e.target.closest('svg.c, .hm td, [data-tip], .donut')) tipHide(); }, { passive: true });
+document.addEventListener('mouseover', (e) => { if (TOUCH) return; const t = e.target.closest('[data-tip]'); if (t) tipShow(e, esc(t.dataset.tip)); });
+document.addEventListener('click', (e) => { if (!TOUCH) return; const t = e.target.closest('[data-tip]'); if (t) tipShow(e, esc(t.dataset.tip)); });
+document.addEventListener('mouseout', (e) => { if (!TOUCH && e.target.closest('[data-tip]')) tipHide(); });
 function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove('on'), 2200); }
 const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
 function countUp(el, v, fmt) {
@@ -556,8 +571,8 @@ function bars(el, rows, o) {
   rows.forEach((r, i) => {
     const x = ml + i * bw + gap / 2, y0 = y(Math.max(0, r.v)), hh = Math.max(1.5, Math.abs(y(r.v) - y(0)));
     const b = sv('rect', { class: 'bar' + (r.v < 0 ? ' neg' : '') + (r.part ? ' part' : ''), x, y: y0, width: w, height: hh, rx: Math.min(5, w / 2), style: (r.v < 0 ? '' : 'fill:' + (o.colorFn ? o.colorFn(r) : o.color)) + ';animation-delay:' + i * 35 + 'ms' });
-    b.addEventListener('mousemove', (e) => tipShow(e, o.tip(r))); b.addEventListener('mouseleave', tipHide);
-    if (o.onClick) { b.style.cursor = 'pointer'; b.addEventListener('click', () => o.onClick(r)); }
+    b.addEventListener('mousemove', (e) => !TOUCH && tipShow(e, o.tip(r))); b.addEventListener('mouseleave', tipOut);
+    if (o.onClick) b.style.cursor = 'pointer'; tapClick(b, 'b' + i + r.k, () => o.tip(r), o.onClick ? () => o.onClick(r) : null);
     svg.append(b);
     if (i % step === 0) { const t = sv('text', { class: 'ax', x: x + w / 2, y: H - 6, 'text-anchor': 'middle' }); t.textContent = r.label + (r.part ? '*' : ''); svg.append(t); }
     if (w >= 40) { const t = sv('text', { class: 'vl', x: x + w / 2, y: r.v < 0 ? y(r.v) + 12 : y(r.v) - 5, 'text-anchor': 'middle' }); t.textContent = fmt(r.v); svg.append(t); }
@@ -590,7 +605,7 @@ function donut(el, items, o) {
   const arcs = top.map((x, i) => { const len = x.v / tot * C, a = { ...x, color: x.k === '__outros' ? pal[6] : pal[i % 6], len, off: -acc }; acc += len; return a; });
   el.innerHTML = `<div class="donut"><svg viewBox="0 0 140 140" style="width:100%;max-width:150px"><circle cx="70" cy="70" r="${R}" fill="none" stroke="var(--track)" stroke-width="16"/>${arcs.map((a) => `<circle cx="70" cy="70" r="${R}" fill="none" stroke="${a.color}" stroke-width="16" stroke-dasharray="0 ${C}" stroke-dashoffset="${a.off}" transform="rotate(-90 70 70)" data-len="${a.len}" data-k="${esc(a.k)}" style="cursor:pointer"/>`).join('')}<text x="70" y="68" text-anchor="middle" style="font-size:17px;font-weight:300;fill:var(--ink);font-family:var(--f)">${esc(o.center[0])}</text><text x="70" y="85" text-anchor="middle" style="font-size:9.5px;fill:var(--muted);font-family:var(--f)">${esc(o.center[1])}</text></svg><div class="hb"></div></div>`;
   requestAnimationFrame(() => $$('circle[data-len]', el).forEach((c, i) => setTimeout(() => c.setAttribute('stroke-dasharray', `${Math.max(0, c.dataset.len - 1.5)} ${C}`), RM ? 0 : 80 + i * 70)));
-  $$('circle[data-k]', el).forEach((c) => { const a = arcs.find((x) => x.k === c.dataset.k); c.addEventListener('mousemove', (e) => tipShow(e, `<b>${esc(a.label)}</b>${brl(a.v)}<br>${pct(a.v / tot)}`)); c.addEventListener('mouseleave', tipHide); if (o.onClick && a.k !== '__outros') c.addEventListener('click', () => o.onClick(a.k)); });
+  $$('circle[data-k]', el).forEach((c) => { const a = arcs.find((x) => x.k === c.dataset.k); const th = `<b>${esc(a.label)}</b>${brl(a.v)}<br>${pct(a.v / tot)}`; c.addEventListener('mousemove', (e) => !TOUCH && tipShow(e, th)); c.addEventListener('mouseleave', tipOut); tapClick(c, 'd' + a.k, th, o.onClick && a.k !== '__outros' ? () => o.onClick(a.k) : null); });
   const lg = $('.hb', el); lg.classList.add('leg');
   lg.innerHTML = arcs.map((a) => `<button class="hr${o.on && o.on(a.k) ? ' on' : ''}" data-k="${esc(a.k)}"><span class="dot" style="background:${a.color}"></span><span class="t"><b>${esc(a.label)}</b></span><span class="tr"></span><span class="v num">${esc(pct(a.v / tot))}</span></button>`).join('');
   if (o.onClick) $$('.hr', lg).forEach((b) => b.addEventListener('click', () => b.dataset.k !== '__outros' && o.onClick(b.dataset.k)));
@@ -629,7 +644,7 @@ function scatter(el, rows, o) {
   if (isN(o.ref)) { const x2 = Math.min(xm, ymx / o.ref); svg.append(sv('line', { class: 'ref', x1: X(0), y1: Y(0), x2: X(x2), y2: Y(x2 * o.ref) })); }
   rows.forEach((r, i) => {
     const c = sv('circle', { cx: X(r.x), cy: Y(r.y), r: r.on ? 8 : 5.5, fill: r.color, 'fill-opacity': o.anyOn && !r.on ? .3 : .85, stroke: r.on ? 'var(--ink)' : 'none', 'stroke-width': 1.5, style: `cursor:pointer;transform-origin:${X(r.x)}px ${Y(r.y)}px;animation:pop .5s ${i * 15}ms var(--ease) both` });
-    c.addEventListener('mousemove', (e) => tipShow(e, o.tip(r))); c.addEventListener('mouseleave', tipHide); c.addEventListener('click', () => o.onClick(r)); svg.append(c);
+    c.addEventListener('mousemove', (e) => !TOUCH && tipShow(e, o.tip(r))); c.addEventListener('mouseleave', tipOut); tapClick(c, 's' + r.k, () => o.tip(r), () => o.onClick(r)); svg.append(c);
     if (r.on) { const right = X(r.x) > W * .6, t = sv('text', { class: 'vl', x: X(r.x) + (right ? -11 : 11), y: Y(r.y) + 4, 'text-anchor': right ? 'end' : 'start' }); t.textContent = r.label; svg.append(t); }
   });
 }
@@ -643,7 +658,7 @@ function curve(el, series) {
     const v = s.vals.filter((x) => x > 0).sort((a, b) => b - a), t = v.reduce((a, b) => a + b, 0); if (!t) continue; let ac = 0;
     const pts = [[0, 0]].concat(v.map((x, i) => { ac += x; return [(i + 1) / v.length, ac / t]; }));
     const p = sv('path', { d: 'M' + pts.map((q) => X(q[0]).toFixed(1) + ',' + Y(q[1]).toFixed(1)).join('L'), fill: 'none', stroke: s.color, 'stroke-width': 2.2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', class: 'ln' }); svg.append(p); p.style.setProperty('--len', p.getTotalLength());
-    pts.slice(1).forEach((q, i) => { const c = sv('circle', { cx: X(q[0]), cy: Y(q[1]), r: 6, fill: 'transparent' }); c.addEventListener('mousemove', (e) => tipShow(e, `<b>${esc(s.name)}</b>${i + 1} maiores: ${pct(q[1])} do faturamento`)); c.addEventListener('mouseleave', tipHide); svg.append(c); });
+    pts.slice(1).forEach((q, i) => { const c = sv('circle', { cx: X(q[0]), cy: Y(q[1]), r: 6, fill: 'transparent' }); const th = `<b>${esc(s.name)}</b>${i + 1} maiores: ${pct(q[1])} do faturamento`; c.addEventListener('mousemove', (e) => !TOUCH && tipShow(e, th)); c.addEventListener('mouseleave', tipOut); tapClick(c, 'c' + s.name + i, th, null); svg.append(c); });
   }
 }
 
@@ -676,7 +691,7 @@ function divBars(el, rows, o) {
     const up = sv('rect', { class: 'bar' + (part ? ' part' : ''), x, y: y(r.vV), width: w, height: Math.max(1, y(0) - y(r.vV)), rx: Math.min(5, w / 2), style: `fill:${o.color};animation-delay:${i * 35}ms` });
     const dn = sv('rect', { class: 'bar neg' + (part ? ' part' : ''), x, y: y(0), width: w, height: Math.max(0, y(-r.vX) - y(0)), rx: Math.min(5, w / 2), style: `fill-opacity:.75;animation-delay:${i * 35 + 120}ms` });
     const tipF = (e) => tipShow(e, `<b>${esc(tc(ymName(r.k)))}${part ? ' (parcial)' : ''}</b><i style="background:${o.color}"></i>Vendas ${esc(brl(r.vV))}<br><i style="background:var(--bad)"></i>Devoluções ${esc(brl(r.vX))}<br>Líquido <b style="display:inline">${esc(brl(r.v))}</b><br>Taxa de devolução ${esc(pct(r.tx))}`);
-    for (const b of [up, dn]) { b.addEventListener('mousemove', tipF); b.addEventListener('mouseleave', tipHide); if (o.onClick) { b.style.cursor = 'pointer'; b.addEventListener('click', () => o.onClick(r)); } svg.append(b); }
+    for (const b of [up, dn]) { b.addEventListener('mousemove', (e) => !TOUCH && tipF(e)); b.addEventListener('mouseleave', tipOut); if (o.onClick) b.style.cursor = 'pointer'; b.addEventListener('click', (e) => { if (TOUCH && tapClick.k !== 'm' + r.k) { tapClick.k = 'm' + r.k; tipF(e); return; } tapClick.k = null; tipHide(); if (o.onClick) o.onClick(r); }); svg.append(b); }
     const ny = y(r.v); svg.append(sv('line', { x1: x - 2, x2: x + w + 2, y1: ny, y2: ny, stroke: 'var(--ink)', 'stroke-width': 2, 'stroke-linecap': 'round', style: `opacity:0;animation:pop .4s ${300 + i * 35}ms var(--ease) forwards` }));
     if (w >= 40) { const t = sv('text', { class: 'vl', x: x + w / 2, y: y(r.vV) - 5, 'text-anchor': 'middle' }); t.textContent = axC(r.v); svg.append(t); }
     if (i % (w < 18 ? 2 : 1) === 0) { const t = sv('text', { class: 'ax', x: x + w / 2, y: H - 6, 'text-anchor': 'middle' }); t.textContent = ymLbl(r.k).slice(0, 3) + (part ? '*' : ''); svg.append(t); }
@@ -794,7 +809,7 @@ function signals() {
   const keep = S.f; S.f = F0(); computePerfil(); const out = [];
   try {
     const fm = monthSeries('F', false).filter((x) => closed(x.k)), dm = monthSeries('D', false).filter((x) => closed(x.k));
-    if (fm.length >= 3) { const u = fm[fm.length - 1], b = fm.slice(0, -1).filter((x) => x.vV > 0), avg = b.reduce((s, x) => s + x.vV, 0) / (b.length || 1); if (u.vV < 0.5 * avg) out.push({ c: 'var(--bad)', t: 'Vendas de fornecimento pararam', s: 'vendas em ' + ymLbl(u.k) + ' · média anterior ' + brlC(avg), v: brlC(u.vV) }); }
+    if (fm.length >= 3) { const b0 = fm.filter((x) => x.vV > 0), avg = b0.reduce((s, x) => s + x.vV, 0) / (b0.length || 1); const ini = fm.findIndex((x, i) => i > 0 && fm.slice(i).every((y) => y.vV < 0.05 * avg)); if (ini > 0) out.push({ c: 'var(--azure)', t: 'Sem fornecimento desde ' + ymLbl(fm[ini].k), s: 'Mudança tributária: a operação deixou de usar simples remessa', v: 'Fiscal' }); }
     const tf = total('F'); out.push({ c: tf.tx > 0.12 ? 'var(--bad)' : 'var(--warn)', t: 'Devolução no fornecimento', s: brlC(tf.vX) + ' devolvidos', v: pct(tf.tx) });
     const g = agg('F', 'grp').filter((x) => x.vV >= tf.vV * 0.03).sort((a, b) => b.tx - a.tx)[0]; if (g) out.push({ c: 'var(--warn)', t: 'Maior devolução: ' + tc(g.k), s: 'agrupamento com ao menos 3% das vendas', v: pct(g.tx) });
     const cia = sortV(agg('F', 'cia')), tc0 = cia.reduce((s, x) => s + x.v, 0); if (cia[0] && cia[0].v / tc0 > 0.25) out.push({ c: 'var(--warn)', t: 'Concentração em ' + ciaLbl(cia[0].k), s: 'participação no fornecimento', v: pct(cia[0].v / tc0) });
@@ -817,7 +832,7 @@ function rExec() {
   setKPI('e-k6', T.ped ? T.vV / T.ped : null, brlC, `<span>${int(T.ped)} pedidos</span>`);
   const hm = !S.hist.exec || S.hist.exec === 'all' ? md : [S.hist.exec];
   divBars($('#e-hist-b'), monthSeries(hm), { color: colM(hm.length === 1 ? hm[0] : 'F'), h: innerWidth > 1180 ? 320 : 240, onClick: (r) => { S.f.ini = S.f.fim = r.k; render(); toast('Período: ' + ymLbl(r.k)); } });
-  $('#e-hist-m').textContent = 'Clique em um mês para filtrar';
+  $('#e-hist-m').textContent = TOUCH ? 'Toque para ver o valor; toque de novo para filtrar' : 'Clique em um mês para filtrar';
   $('#e-sig-b').innerHTML = (SIG || []).map((s) => `<div class="sg"><i style="background:${s.c}"></i><div><b>${esc(s.t)}</b><small>${esc(s.s)}</small></div><span class="v num">${esc(s.v)}</span></div>`).join('');
   $('#e-sig-m').textContent = 'Base completa, sem duplicidade';
   const fo = new Map(agg('F', 'of').map((r) => [r.k, r.v])), dof = new Map(agg('D', 'of').map((r) => [r.k, r.v]));
